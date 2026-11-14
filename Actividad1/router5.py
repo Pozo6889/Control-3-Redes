@@ -22,8 +22,3 @@ enviador.sendto(paquete_listoco, (ip_envio, puerto_envio))
 buffer = 512
 
 enviador.close()
-
-
-
-
-
