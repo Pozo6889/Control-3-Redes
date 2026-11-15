@@ -2,6 +2,7 @@ import sys
 import socket
 from funcionesAux import parse_packet, create_packet, check_routes
 
+listaRuta = []
 if len(sys.argv) != 4:
     print("Uso: python3 router.py router_IP router_puerto router_rutas.txt")
     sys.exit(1)
@@ -30,10 +31,10 @@ while True:
         continue
 
     # Caso 2: no es para este router -> buscamos el siguiente salto
-    next_hop = check_routes(router_rutas, destino)
+    next_hop = check_routes(router_rutas, destino,listaRuta)
     if next_hop is None:
-        print(f"No hay rutas hacia {destino} para paquete {paquete_bytes}")
+        print(f"No hay rutas hacia {destino} para paquete {paquete}")
     else:
-        print(f"redirigiendo paquete {paquete_bytes} con destino final {destino} "
+        print(f"redirigiendo paquete {paquete} con destino final {destino} "
               f"desde {direccion_router} hacia {next_hop}")
         escuchador.sendto(create_packet(paquete), next_hop)
