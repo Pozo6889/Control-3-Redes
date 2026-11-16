@@ -30,6 +30,12 @@ def check_routes(routes_file_name: str, destination_address: tuple[str, int],lis
             if (ip_destino in ipaddress.ip_network(red, strict=False)
                     and int(puerto_inicial) <= puerto_destino <= int(puerto_final)):
                 rutasCandidatas.append((red, int(puerto_inicial), int(puerto_final), ip_salto, int(puerto_salto)))
+    # La ruta default (0.0.0.0/0) solo debe usarse si no hay otra ruta mas especifica:
+    # nos quedamos solo con las candidatas de mayor largo de prefijo.
+    if rutasCandidatas:
+        mayor_prefijo = max(ipaddress.ip_network(r[0], strict=False).prefixlen for r in rutasCandidatas)
+        rutasCandidatas = [r for r in rutasCandidatas
+                           if ipaddress.ip_network(r[0], strict=False).prefixlen == mayor_prefijo]
     # Si no hay ninguna ruta, retornamos None
     if not rutasCandidatas:
         return None
