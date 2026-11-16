@@ -35,10 +35,11 @@ while True:
         continue
 
     # Caso 2: no es para este router -> buscamos el siguiente salto
-    next_hop = check_routes(router_rutas, destino, listaRuta)
-    if next_hop is None:
+    ruta = check_routes(router_rutas, destino, listaRuta)
+    if ruta is None:
         print(f"No hay rutas hacia {destino} para paquete {paquete}")
     else:
+        next_hop, mtu = ruta  # el MTU aun no se usa (se usara al fragmentar)
         paquete["ttl"] -= 1  # el TTL baja en 1 antes de hacer forward
         print(f"redirigiendo paquete {paquete} con destino final {destino} "
               f"desde {direccion_router} hacia {next_hop}")

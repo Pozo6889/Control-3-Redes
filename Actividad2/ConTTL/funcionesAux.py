@@ -33,20 +33,26 @@ def create_packet(parsed_IP_packet: dict) -> bytes:
             + tamano_bytes + flag_bytes + parsed_IP_packet["mensaje"])
 
 
-def check_routes(routes_file_name: str, destination_address: tuple[str, int], listaRutas) -> tuple[str, int] | None:
+MTU_POR_DEFECTO = 1500  # para lineas de tablas antiguas, sin columna de MTU
+
+
+def check_routes(routes_file_name: str, destination_address: tuple[str, int], listaRutas):
+    """Retorna ((next_hop_ip, next_hop_puerto), MTU) o None si no hay ruta."""
     ip_destino, puerto_destino = destination_address
     ip_destino = ipaddress.ip_address(ip_destino)
     rutasCandidatas = []
     with open(routes_file_name) as archivo:
         for linea in archivo:
             lista_linea = linea.split()
-            # ignoramos lineas que no tengan la forma indicada en el enunciado
-            if len(lista_linea) != 5:
+            # formato: red puerto_inicial puerto_final ip_salto puerto_salto [MTU]
+            # ignoramos lineas que no tengan 5 o 6 campos
+            if len(lista_linea) not in (5, 6):
                 continue
-            red, puerto_inicial, puerto_final, ip_salto, puerto_salto = lista_linea
+            red, puerto_inicial, puerto_final, ip_salto, puerto_salto = lista_linea[:5]
+            mtu = int(lista_linea[5]) if len(lista_linea) == 6 else MTU_POR_DEFECTO
             if (ip_destino in ipaddress.ip_network(red, strict=False)
                     and int(puerto_inicial) <= puerto_destino <= int(puerto_final)):
-                rutasCandidatas.append((red, int(puerto_inicial), int(puerto_final), ip_salto, int(puerto_salto)))
+                rutasCandidatas.append((red, int(puerto_inicial), int(puerto_final), ip_salto, int(puerto_salto), mtu))
     # La ruta default (0.0.0.0/0) solo debe usarse si no hay otra ruta mas especifica:
     # nos quedamos solo con las candidatas de mayor largo de prefijo.
     if rutasCandidatas:
@@ -66,7 +72,35 @@ def check_routes(routes_file_name: str, destination_address: tuple[str, int], li
     # Usamos la primera no usada y la marcamos como usada
     rutaDefinitiva = rutasCandidatasNoUsadas[0]
     listaRutas.append(rutaDefinitiva)
-    return (rutaDefinitiva[3], rutaDefinitiva[4])
+    return (rutaDefinitiva[3], rutaDefinitiva[4]), rutaDefinitiva[5]
+
+
+def fragment_IP_packet(IP_packet: bytes, MTU: int) -> list[bytes]:
+    """Fragmenta IP_packet (header + datos, en bytes) para que cada fragmento mida a lo mas MTU bytes.
+    Retorna una lista con al menos un elemento. Sirve tambien para re-fragmentar un fragmento."""
+    # Caso 1: el paquete cabe por el enlace, no se fragmenta
+    if len(IP_packet) <= MTU:
+        return [IP_packet]
+    if MTU <= HEADER_SIZE:
+        raise ValueError(f"MTU {MTU} demasiado pequeno: el header ya mide {HEADER_SIZE} bytes")
+
+    # Caso 2: hay que fragmentar. Cada trozo de mensaje mide MTU - HEADER_SIZE bytes
+    paquete = parse_packet(IP_packet)
+    datos_por_fragmento = MTU - HEADER_SIZE
+    mensaje = paquete["mensaje"]
+    fragmentos = []
+    for inicio in range(0, len(mensaje), datos_por_fragmento):
+        trozo = mensaje[inicio:inicio + datos_por_fragmento]
+        fragmento = dict(paquete)  # copia: mantiene ip, puerto, ttl e id
+        fragmento["mensaje"] = trozo
+        fragmento["tamano"] = len(trozo)
+        fragmento["offset"] = paquete["offset"] + inicio  # relativo al datagrama original
+        es_ultimo = inicio + datos_por_fragmento >= len(mensaje)
+        # Todos llevan FLAG 1 salvo el ultimo, que hereda el FLAG del paquete recibido
+        # (si el paquete ya era un fragmento no final, su ultimo trozo tambien debe llevar 1)
+        fragmento["flag"] = paquete["flag"] if es_ultimo else 1
+        fragmentos.append(create_packet(fragmento))
+    return fragmentos
 
 
 if __name__ == "__main__":
@@ -79,3 +113,34 @@ if __name__ == "__main__":
     manual = (bytes([127, 0, 0, 1, 0x22, 0xB3, 1]) + (7).to_bytes(4, "big") + (0).to_bytes(4, "big")
               + (4).to_bytes(4, "big") + bytes([0]) + b"hola")
     print("IP_packet_v1 == IP_packet_v2 ? {}".format(manual == create_packet(parse_packet(manual))))
+
+
+    ############ TEST fragment_IP_packet
+    def paquete_de_prueba(largo_mensaje, id_paquete=347):
+        m = bytes(i % 256 for i in range(largo_mensaje))
+        return create_packet({"ip": "127.0.0.1", "puerto": 8885, "ttl": 10, "id": id_paquete,
+                              "offset": 0, "tamano": len(m), "flag": 0, "mensaje": m})
+
+    def unir(fragmentos):  # reconstruye el mensaje solo para verificar (no es reassemble_IP_packet)
+        partes = sorted((parse_packet(f) for f in fragmentos), key=lambda p: p["offset"])
+        return b"".join(p["mensaje"] for p in partes)
+
+    original = paquete_de_prueba(130)  # 150 bytes en total
+    # a) cabe por el enlace -> lista de tamano 1 con el mismo paquete
+    assert fragment_IP_packet(original, 150) == [original]
+    assert fragment_IP_packet(original, 200) == [original]
+    # b) MTU 100 -> 2 fragmentos (80 + 50 bytes de datos); MTU 50 -> 5 fragmentos (30*4 + 10)
+    for mtu, esperado in [(100, 2), (50, 5)]:
+        frags = fragment_IP_packet(original, mtu)
+        info = [(p["offset"], p["tamano"], p["flag"]) for p in map(parse_packet, frags)]
+        print(f"MTU {mtu}: {len(frags)} fragmentos, largos {[len(f) for f in frags]}, (offset, tamano, flag) = {info}")
+        assert len(frags) == esperado
+        assert all(len(f) <= mtu for f in frags)
+        assert unir(frags) == parse_packet(original)["mensaje"]
+    # c) re-fragmentar un fragmento: el ultimo hereda el FLAG del fragmento recibido
+    primero, segundo = fragment_IP_packet(original, 100)       # flags 1 y 0
+    sub_p = [parse_packet(f) for f in fragment_IP_packet(primero, 50)]
+    sub_s = [parse_packet(f) for f in fragment_IP_packet(segundo, 50)]
+    assert [(p["offset"], p["tamano"], p["flag"]) for p in sub_p] == [(0, 30, 1), (30, 30, 1), (60, 20, 1)]
+    assert [(p["offset"], p["tamano"], p["flag"]) for p in sub_s] == [(80, 30, 1), (110, 20, 0)]
+    print("Tests de fragment_IP_packet OK")
