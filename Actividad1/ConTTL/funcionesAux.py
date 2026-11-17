@@ -2,7 +2,7 @@ import ipaddress
 
 #### Paquete: IP[4 bytes] + PUERTO[2 bytes] + TTL[1 byte] + MENSAJE
 # Estructura parseada: {"ip": "a.b.c.d", "puerto": int, "ttl": int, "mensaje": str}
-def parse_packet(IP_packet: bytes) -> dict:
+def parse_packet(IP_packet: bytes):
     ip = ".".join(str(b) for b in IP_packet[0:4])
     puerto = int.from_bytes(IP_packet[4:6], byteorder="big")
     ttl = IP_packet[6]
@@ -10,15 +10,15 @@ def parse_packet(IP_packet: bytes) -> dict:
     return {"ip": ip, "puerto": puerto, "ttl": ttl, "mensaje": mensaje}
 
 
-def create_packet(parsed_IP_packet: dict) -> bytes:
+def create_packet(parsed_IP_packet: dict):
     ip_bytes = bytes(int(trozo) for trozo in parsed_IP_packet["ip"].split("."))
     puerto_bytes = parsed_IP_packet["puerto"].to_bytes(2, byteorder="big")
     ttl_bytes = parsed_IP_packet["ttl"].to_bytes(1, byteorder="big")
     mensaje_bytes = parsed_IP_packet["mensaje"].encode()
     return ip_bytes + puerto_bytes + ttl_bytes + mensaje_bytes
 
-
-def check_routes(routes_file_name: str, destination_address: tuple[str, int], listaRutas) -> tuple[str, int] | None:
+# routers_file_name: string , destination_address: string,int    , listaRutas: list(red, puerto_inicial, puerto_final, ip_salto, puerto_salto)
+def check_routes(routes_file_name, destination_address, listaRutas):
     ip_destino, puerto_destino = destination_address
     ip_destino = ipaddress.ip_address(ip_destino)
     rutasCandidatas = []
@@ -41,14 +41,18 @@ def check_routes(routes_file_name: str, destination_address: tuple[str, int], li
     # Si no hay ninguna ruta, retornamos None
     if not rutasCandidatas:
         return None
-    # Round-robin: rutas candidatas que no se han usado en esta vuelta
-    rutasCandidatasNoUsadas = [ruta for ruta in rutasCandidatas if ruta not in listaRutas]
-    # Si todas fueron usadas, las liberamos para comenzar una nueva vuelta
+    #Chequeamos entre las rutas candidatas, las que no se han utilizado en esta iteracion
+    rutasCandidatasNoUsadas = []
+    for ruta in rutasCandidatas:
+        if ruta not in listaRutas:
+            rutasCandidatasNoUsadas.append(ruta)
+    rutaDefinitiva = None
+    #Si todas las rutas han sido usadas, entonces las quitamos de la lista global (para habilitar su uso)
     if not rutasCandidatasNoUsadas:
         for ruta in rutasCandidatas:
             listaRutas.remove(ruta)
         rutasCandidatasNoUsadas = rutasCandidatas
-    # Usamos la primera no usada y la marcamos como usada
+    #Guardamos la primera ruta no Usada y la quitamos de la lista global (para que no se repita su uso en esta iteracion)
     rutaDefinitiva = rutasCandidatasNoUsadas[0]
     listaRutas.append(rutaDefinitiva)
     return (rutaDefinitiva[3], rutaDefinitiva[4])
