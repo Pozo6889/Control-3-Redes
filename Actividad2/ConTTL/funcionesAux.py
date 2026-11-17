@@ -103,6 +103,37 @@ def fragment_IP_packet(IP_packet: bytes, MTU: int) -> list[bytes]:
     return fragmentos
 
 
+def reassemble_IP_packet(fragment_list: list[bytes]) -> bytes | None:
+    """Re-ensambla un paquete IP a partir de una lista de fragmentos (en bytes, en cualquier orden).
+    Retorna el paquete completo en bytes, o None si aun faltan fragmentos."""
+    if not fragment_list:
+        return None
+    # Ordenamos por offset; si un mismo offset llega repetido nos quedamos con una sola copia
+    por_offset = {}
+    for fragmento in fragment_list:
+        parsed = parse_packet(fragmento)
+        por_offset[parsed["offset"]] = parsed
+    fragmentos = [por_offset[offset] for offset in sorted(por_offset)]
+
+    # La lista esta completa si: parte en offset 0, cada fragmento empieza donde termina el anterior
+    # y el ultimo tiene FLAG 0. (Un paquete sin fragmentar cumple esto con un solo elemento.)
+    siguiente_offset = 0
+    for fragmento in fragmentos:
+        if fragmento["offset"] != siguiente_offset:
+            return None  # falta algun fragmento
+        siguiente_offset += fragmento["tamano"]
+    if fragmentos[-1]["flag"] != 0:
+        return None  # falta el ultimo fragmento
+
+    mensaje = b"".join(f["mensaje"] for f in fragmentos)
+    paquete = dict(fragmentos[0])  # IP, puerto, TTL e ID: los del primer fragmento
+    paquete["offset"] = 0
+    paquete["tamano"] = len(mensaje)
+    paquete["flag"] = 0
+    paquete["mensaje"] = mensaje
+    return create_packet(paquete)
+
+
 if __name__ == "__main__":
     ############ TEST parse y create (header completo)
     msg = "hola, ñandú".encode()
@@ -144,3 +175,35 @@ if __name__ == "__main__":
     assert [(p["offset"], p["tamano"], p["flag"]) for p in sub_p] == [(0, 30, 1), (30, 30, 1), (60, 20, 1)]
     assert [(p["offset"], p["tamano"], p["flag"]) for p in sub_s] == [(80, 30, 1), (110, 20, 0)]
     print("Tests de fragment_IP_packet OK")
+
+
+    ############ TEST reassemble_IP_packet
+    import random as _random
+    IP_packet_v1 = paquete_de_prueba(130)
+    for mtu in (200, 150, 100, 50, 30, 21):
+        fragment_list = fragment_IP_packet(IP_packet_v1, mtu)
+        IP_packet_v2 = reassemble_IP_packet(fragment_list)
+        print("MTU {}: {} fragmentos, IP_packet_v1 == IP_packet_v2 ? {}".format(mtu, len(fragment_list), IP_packet_v1 == IP_packet_v2))
+        assert IP_packet_v1 == IP_packet_v2
+        # en desorden (varias permutaciones)
+        for _ in range(20):
+            _random.shuffle(fragment_list)
+            assert reassemble_IP_packet(fragment_list) == IP_packet_v1
+    frags = fragment_IP_packet(IP_packet_v1, 50)  # 5 fragmentos
+    # listas incompletas -> None
+    assert reassemble_IP_packet([]) is None
+    assert reassemble_IP_packet(frags[1:]) is None              # falta el primero
+    assert reassemble_IP_packet(frags[:-1]) is None             # falta el ultimo
+    assert reassemble_IP_packet(frags[:2] + frags[3:]) is None  # falta uno del medio
+    assert reassemble_IP_packet([frags[0]]) is None             # un solo fragmento (no final)
+    assert reassemble_IP_packet([frags[-1]]) is None            # un solo fragmento (final, offset > 0)
+    # un paquete sin fragmentar (lista de tamano 1) se devuelve completo
+    assert reassemble_IP_packet([IP_packet_v1]) == IP_packet_v1
+    # fragmentos repetidos no molestan
+    assert reassemble_IP_packet(frags + frags[:2]) == IP_packet_v1
+    # mezcla de fragmentos re-fragmentados (como ocurre con MTUs distintos en la ruta)
+    grandes = fragment_IP_packet(IP_packet_v1, 100)
+    mezcla = fragment_IP_packet(grandes[0], 50) + [grandes[1]]
+    assert reassemble_IP_packet(mezcla[::-1]) == IP_packet_v1
+    print("Tests de reassemble_IP_packet OK")
+
