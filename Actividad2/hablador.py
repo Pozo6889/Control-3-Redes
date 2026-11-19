@@ -19,7 +19,7 @@ id_paquete = int(sys.argv[7]) if len(sys.argv) == 8 else random.randint(0, 2**32
 mensaje_bytes = mensaje.encode()
 paquete = {"ip": ip_final, "puerto": puerto_final, "ttl": ttl,
            "id": id_paquete, "offset": 0,
-           "tamano": len(mensaje_bytes), "flag": 0, "mensaje": mensaje_bytes}
+           "tamaño": len(mensaje_bytes), "flag": 0, "mensaje": mensaje_bytes}
 enviador = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 enviador.sendto(create_packet(paquete), (ip_envio, puerto_envio))
 enviador.close()

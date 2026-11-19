@@ -15,8 +15,8 @@ def create_packet(parsed_IP_packet: dict):
     mensaje_bytes = parsed_IP_packet["mensaje"].encode()
     return ip_bytes + puerto_bytes + mensaje_bytes
 
-
-def check_routes(routes_file_name: str, destination_address: tuple[str, int],listaRutas):
+# Entrada: routers_file_name: string , destination_address: string,int    , listaRutas: list(red, puerto_inicial, puerto_final, ip_salto, puerto_salto)
+def check_routes(routes_file_name, destination_address,listaRutas):
     ip_destino, puerto_destino = destination_address
     ip_destino = ipaddress.ip_address(ip_destino)
     rutasCandidatas = []

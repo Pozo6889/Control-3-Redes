@@ -2,7 +2,8 @@ import sys
 import socket
 from funcionesAux import parse_packet, create_packet, check_routes
 
-listaRuta = []  # estado del round-robin
+listaRuta = [] 
+# Recibimos parametros del router
 if len(sys.argv) != 4:
     print("Uso: python3 router.py router_IP router_puerto router_rutas.txt")
     sys.exit(1)
@@ -14,7 +15,7 @@ direccion_router = (router_ip, router_puerto)
 print(f"Router escuchando en: {direccion_router}")
 print(f"Tabla de rutas: {router_rutas}")
 
-### Socket no orientado a conexion, escucha bloqueante
+# Socket no orientado a conexion, escucha bloqueante
 escuchador = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 escuchador.bind(direccion_router)
 buffer = 512
@@ -29,17 +30,17 @@ while True:
         print(f"Se recibió paquete {paquete} con TTL 0")
         continue
 
-    # Caso 1: el paquete es para este router -> imprimimos solo el contenido
+    # Si el paquete es para este router, hacemos print
     if destino == direccion_router:
         print(paquete["mensaje"])
         continue
 
-    # Caso 2: no es para este router -> buscamos el siguiente salto
+    # Si no es para este router, checkeamos rutas segun round robin y enviamos
     next_hop = check_routes(router_rutas, destino, listaRuta)
     if next_hop is None:
         print(f"No hay rutas hacia {destino} para paquete {paquete}")
     else:
-        paquete["ttl"] -= 1  # el TTL baja en 1 antes de hacer forward
-        print(f"redirigiendo paquete {paquete} con destino final {destino} "
-              f"desde {direccion_router} hacia {next_hop}")
+        # el TTL baja en 1 antes de enviar
+        paquete["ttl"] -= 1  
+        print(f'Redirigiendo mensaje "{paquete["mensaje"]}", recibido desde {direccion[1]} estando ahora en {router_puerto}, enviando a {next_hop[1]} con destino final {destino} con TTL = {paquete["ttl"]}')
         escuchador.sendto(create_packet(paquete), next_hop)
